@@ -4,7 +4,7 @@ import {
     useState
 } from "react";
 
-import axios from "axios";
+import API, { BASE_URL } from "../services/api";
 
 import {
     useNavigate
@@ -222,8 +222,8 @@ const Chat = () => {
         try {
 
             const response =
-                await axios.get(
-                    "http://localhost:5001/api/users",
+                await API.get(
+                    "/users",
                     {
                         headers: {
                             Authorization:
@@ -279,8 +279,8 @@ const Chat = () => {
             try {
 
                 const response =
-                    await axios.get(
-                        `http://localhost:5001/api/messages/${receiverId}`,
+                    await API.get(
+                        `/messages/${receiverId}`,
                         {
                             headers: {
                                 Authorization:
@@ -963,8 +963,8 @@ const Chat = () => {
 
             console.log(`Uploading ${files.length} files...`);
 
-            const response = await axios.post(
-                "http://localhost:5001/api/messages/upload",
+            const response = await API.post(
+                "/messages/upload",
                 formData,
                 {
                     headers: {
@@ -1227,8 +1227,8 @@ const Chat = () => {
 
 
                     const response =
-                        await axios.post(
-                            "http://localhost:5001/api/messages/upload",
+                        await API.post(
+                            "/messages/upload",
                             formData,
                             {
                                 headers: {
@@ -1442,7 +1442,7 @@ const Chat = () => {
         (msg) => {
 
             const fileUrl =
-                `http://localhost:5001${msg.fileUrl}`;
+                `${BASE_URL}${msg.fileUrl}`;
 
 
             // =================================================
