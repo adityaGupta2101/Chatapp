@@ -38,7 +38,7 @@ export const SocketProvider =
 
             const newSocket =
                 io(
-                    "http://localhost:5000",
+                    "http://localhost:5001",
                     {
                         auth: {
                             token

@@ -85,12 +85,14 @@ const io =
 initializeSocket(io);
 
 
+const PORT = process.env.PORT || 5001;
+
 server.listen(
-    5000,
+    PORT,
     () => {
 
         console.log(
-            "Server running on http://localhost:5000"
+            `Server running on http://localhost:${PORT}`
         );
 
         console.log(

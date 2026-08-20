@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import { registerUser } from "../services/api";
 import { useNavigate, Link } from "react-router-dom";
 
 const Signup = () => {
@@ -19,8 +20,7 @@ const Signup = () => {
         setLoading(true);
 
         try {
-            const response = await axios.post(
-                "http://localhost:5000/api/auth/register",
+            const response = await registerUser(
                 {
                     name,
                     email,

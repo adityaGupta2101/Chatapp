@@ -14,7 +14,10 @@ const onlineUsers = new Map();
 // SOCKET.IO INITIALIZATION
 // =====================================================
 
+let ioInstance;
+
 const initializeSocket = (io) => {
+    ioInstance = io;
 
     // =================================================
     // AUTHENTICATE SOCKET
@@ -502,5 +505,6 @@ const initializeSocket = (io) => {
 
 module.exports = {
     initializeSocket,
+    getIo: () => ioInstance,
     onlineUsers
 };

@@ -44,7 +44,7 @@ router.get(
 router.post(
     "/upload",
     authMiddleware,
-    upload.single("file"),
+    upload.array("files", 10),
     uploadFile
 );
 

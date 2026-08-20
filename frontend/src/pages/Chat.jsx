@@ -66,8 +66,8 @@ const Chat = () => {
     // FILE STATES
     // =====================================================
 
-    const [selectedFile, setSelectedFile] =
-        useState(null);
+    const [selectedFiles, setSelectedFiles] =
+        useState([]);
 
     const [uploadingFile, setUploadingFile] =
         useState(false);
@@ -80,55 +80,125 @@ const Chat = () => {
     const fileInputRef =
         useRef(null);
 
-        const messagesEndRef =
-    useRef(null);
-
-    const messagesContainerRef = useRef(null);
 
     // =====================================================
-// VOICE RECORDING
-// =====================================================
+    // MESSAGE SCROLL REFS
+    // =====================================================
 
-const [isRecording, setIsRecording] = useState(false);
-const [recordingTime, setRecordingTime] = useState(0);
+    const messagesEndRef =
+        useRef(null);
 
-const mediaRecorderRef = useRef(null);
-const audioChunksRef = useRef([]);
-const recordingTimerRef = useRef(null);
+    const messagesContainerRef =
+        useRef(null);
 
-// useEffect(() => {
-//     if (!messagesEndRef.current) {
-//         return;
-//     }
 
-//     messagesEndRef.current.scrollIntoView({
-//         behavior: "smooth"
-//     });
-// }, [messages]); 
+    // =====================================================
+    // IMPORTANT SCROLL CONTROL
+    // =====================================================
 
-useEffect(() => {
+    /*
+        This ref tells us whether the next messages update
+        should scroll to the bottom.
 
-    const container = messagesContainerRef.current;
+        "auto"   = instant scroll (when opening chat)
+        "smooth" = smooth scroll (new messages)
+        false    = don't disturb user's current position
+    */
 
-    if (!container) {
-        return;
-    }
+    const shouldScrollToBottomRef =
+        useRef(false);
 
-    const isNearBottom =
-        container.scrollHeight -
-        container.scrollTop -
-        container.clientHeight <
-        150;
 
-    if (isNearBottom) {
+    // =====================================================
+    // VOICE RECORDING
+    // =====================================================
 
-        messagesEndRef.current?.scrollIntoView({
-            behavior: "smooth"
+    const [isRecording, setIsRecording] =
+        useState(false);
+
+    const [recordingTime, setRecordingTime] =
+        useState(0);
+
+    const mediaRecorderRef =
+        useRef(null);
+
+    const audioChunksRef =
+        useRef([]);
+
+    const recordingTimerRef =
+        useRef(null);
+
+
+    // =====================================================
+    // SCROLL HELPER
+    // =====================================================
+
+    const scrollToBottom = (
+        behavior = "smooth"
+    ) => {
+
+        if (!messagesEndRef.current) {
+            return;
+        }
+
+        messagesEndRef.current.scrollIntoView({
+            behavior
+        });
+    };
+
+
+    // =====================================================
+    // CHECK WHETHER USER IS NEAR BOTTOM
+    // =====================================================
+
+    const isUserNearBottom = () => {
+
+        const container =
+            messagesContainerRef.current;
+
+        if (!container) {
+            return true;
+        }
+
+        const distanceFromBottom =
+            container.scrollHeight -
+            container.scrollTop -
+            container.clientHeight;
+
+        return distanceFromBottom < 300;
+    };
+
+
+    // =====================================================
+    // SCROLL AFTER MESSAGES ARE RENDERED
+    // =====================================================
+
+    useEffect(() => {
+
+        if (!shouldScrollToBottomRef.current) {
+            return;
+        }
+
+        /*
+            Wait for React to render the new messages
+            before scrolling.
+        */
+       
+        const behavior = shouldScrollToBottomRef.current === true 
+            ? "smooth" 
+            : shouldScrollToBottomRef.current;
+
+        requestAnimationFrame(() => {
+
+            scrollToBottom(behavior);
+
+            shouldScrollToBottomRef.current =
+                false;
         });
 
-    }
+    }, [messages]);
 
-}, [messages]);
+
     // =====================================================
     // LOGOUT
     // =====================================================
@@ -153,7 +223,7 @@ useEffect(() => {
 
             const response =
                 await axios.get(
-                    "http://localhost:5000/api/users",
+                    "http://localhost:5001/api/users",
                     {
                         headers: {
                             Authorization:
@@ -188,7 +258,6 @@ useEffect(() => {
                 );
             }
 
-
         } catch (error) {
 
             console.error(
@@ -211,7 +280,7 @@ useEffect(() => {
 
                 const response =
                     await axios.get(
-                        `http://localhost:5000/api/messages/${receiverId}`,
+                        `http://localhost:5001/api/messages/${receiverId}`,
                         {
                             headers: {
                                 Authorization:
@@ -221,12 +290,25 @@ useEffect(() => {
                     );
 
 
+                /*
+                    IMPORTANT CHANGE:
+
+                    When opening a chat, we ALWAYS want
+                    to go to the latest message.
+                */
+
+                shouldScrollToBottomRef.current =
+                    "auto";
+
+
                 setMessages(
                     response.data.messages
                 );
 
 
-                // Mark unread received messages as seen
+                // =================================================
+                // MARK UNREAD RECEIVED MESSAGES AS SEEN
+                // =================================================
 
                 if (socket) {
 
@@ -253,7 +335,6 @@ useEffect(() => {
                             }
                         );
                 }
-
 
             } catch (error) {
 
@@ -284,9 +365,17 @@ useEffect(() => {
     useEffect(() => {
 
         if (
-            selectedUser &&
+            selectedUser?._id &&
             socket
         ) {
+
+            /*
+                Opening another chat should always
+                start at the latest message.
+            */
+
+            shouldScrollToBottomRef.current =
+                "auto";
 
             fetchMessages(
                 selectedUser._id
@@ -294,7 +383,7 @@ useEffect(() => {
         }
 
     }, [
-        selectedUser,
+        selectedUser?._id,
         socket
     ]);
 
@@ -329,45 +418,73 @@ useEffect(() => {
                     String(selectedUser._id);
 
 
-                if (isCurrentChat) {
-
-                    setMessages(
-                        (previousMessages) => {
-
-                            const alreadyExists =
-                                previousMessages.some(
-                                    (msg) =>
-                                        String(msg._id) ===
-                                        String(newMessage._id)
-                                );
-
-
-                            if (alreadyExists) {
-                                return previousMessages;
-                            }
-
-
-                            return [
-                                ...previousMessages,
-                                newMessage
-                            ];
-                        }
-                    );
-
-
-                    // Receiver has opened conversation
-
-                    socket.emit(
-                        "message_seen",
-                        {
-                            messageId:
-                                newMessage._id,
-
-                            senderId:
-                                newMessage.sender
-                        }
-                    );
+                if (!isCurrentChat) {
+                    return;
                 }
+
+
+                /*
+                    IMPORTANT:
+
+                    Check user's position BEFORE
+                    adding the new message.
+
+                    If user is reading old messages,
+                    don't scroll.
+
+                    If user is already near bottom,
+                    scroll to new message.
+                */
+
+                const wasNearBottom =
+                    isUserNearBottom();
+
+
+                if (wasNearBottom) {
+
+                    shouldScrollToBottomRef.current =
+                        "smooth";
+                }
+
+
+                setMessages(
+                    (previousMessages) => {
+
+                        const alreadyExists =
+                            previousMessages.some(
+                                (msg) =>
+                                    String(msg._id) ===
+                                    String(
+                                        newMessage._id
+                                    )
+                            );
+
+
+                        if (alreadyExists) {
+                            return previousMessages;
+                        }
+
+
+                        return [
+                            ...previousMessages,
+                            newMessage
+                        ];
+                    }
+                );
+
+
+                // Receiver has opened conversation
+
+                socket.emit(
+                    "message_seen",
+                    {
+                        messageId:
+                            newMessage._id,
+
+                        senderId:
+                            newMessage.sender
+                    }
+                );
             };
 
 
@@ -377,6 +494,13 @@ useEffect(() => {
 
         const handleMessageDelivered =
             ({ messageId }) => {
+
+                /*
+                    DO NOT set scroll flag here.
+
+                    Delivery status changes should NOT
+                    move user's scrollbar.
+                */
 
                 setMessages(
                     (previousMessages) =>
@@ -408,6 +532,13 @@ useEffect(() => {
         const handleMessageSeen =
             ({ messageId }) => {
 
+                /*
+                    DO NOT scroll here.
+
+                    Seen status should never disturb
+                    user's current reading position.
+                */
+
                 setMessages(
                     (previousMessages) =>
                         previousMessages.map(
@@ -430,41 +561,64 @@ useEffect(() => {
                         )
                 );
             };
-// =================================================
+
+
+        // =================================================
         // USER ONLINE / OFFLINE
         // =================================================
-const handleOnlineUsers = (onlineUserIds) => {
 
-    setUsers((previousUsers) =>
-        previousUsers.map((item) => ({
-            ...item,
-            isOnline: onlineUserIds.some(
-                (id) =>
-                    String(id) === String(item._id)
-            )
-        }))
-    );
+        const handleOnlineUsers =
+            (onlineUserIds) => {
+
+                setUsers(
+                    (previousUsers) =>
+                        previousUsers.map(
+                            (item) => ({
+
+                                ...item,
+
+                                isOnline:
+                                    onlineUserIds.some(
+                                        (id) =>
+                                            String(id) ===
+                                            String(
+                                                item._id
+                                            )
+                                    )
+                            })
+                        )
+                );
 
 
-    setSelectedUser((previousSelected) => {
+                setSelectedUser(
+                    (previousSelected) => {
 
-        if (!previousSelected) {
-            return previousSelected;
-        }
+                        if (!previousSelected) {
+                            return previousSelected;
+                        }
 
 
-        return {
-            ...previousSelected,
+                        return {
+                            ...previousSelected,
 
-            isOnline: onlineUserIds.some(
-                (id) =>
-                    String(id) ===
-                    String(previousSelected._id)
-            )
-        };
-    });
-};
-        
+                            isOnline:
+                                onlineUserIds.some(
+                                    (id) =>
+                                        String(id) ===
+                                        String(
+                                            previousSelected._id
+                                        )
+                                )
+                        };
+                    }
+                );
+            };
+
+
+        // =================================================
+        // USER STATUS
+        // =================================================
+
         const handleUserStatus =
             ({
                 userId,
@@ -492,8 +646,6 @@ const handleOnlineUsers = (onlineUserIds) => {
                         )
                 );
 
-
-                // Update selected user
 
                 setSelectedUser(
                     (previousSelected) => {
@@ -524,7 +676,7 @@ const handleOnlineUsers = (onlineUserIds) => {
 
 
         // =================================================
-        // REGISTER EVENTS
+        // REGISTER SOCKET EVENTS
         // =================================================
 
         socket.on(
@@ -546,15 +698,16 @@ const handleOnlineUsers = (onlineUserIds) => {
             "user_status",
             handleUserStatus
         );
-         socket.on(
-    "online_users",
-    handleOnlineUsers
-);
 
-socket.emit(
-    "get_online_users"
-);
+        socket.on(
+            "online_users",
+            handleOnlineUsers
+        );
 
+
+        socket.emit(
+            "get_online_users"
+        );
 
 
         // =================================================
@@ -584,10 +737,9 @@ socket.emit(
             );
 
             socket.off(
-    "online_users",
-    handleOnlineUsers
-);
-
+                "online_users",
+                handleOnlineUsers
+            );
         };
 
     }, [
@@ -604,7 +756,16 @@ socket.emit(
         (selected) => {
 
             // Clear previously selected file
-            setSelectedFile(null);
+
+            setSelectedFiles([]);
+
+            /*
+                Opening a chat should always start
+                at the latest message.
+            */
+
+            shouldScrollToBottomRef.current =
+                "auto";
 
             setSelectedUser(
                 selected
@@ -642,6 +803,15 @@ socket.emit(
             message.trim();
 
 
+        /*
+            Sending our own message should always
+            take us to the latest message.
+        */
+
+        shouldScrollToBottomRef.current =
+            "smooth";
+
+
         socket.emit(
             "send_message",
             {
@@ -670,11 +840,12 @@ socket.emit(
                         response?.message
                     );
 
+                    shouldScrollToBottomRef.current =
+                        false;
+
                     return;
                 }
 
-
-                // Add sent message to own chat
 
                 setMessages(
                     (previousMessages) => {
@@ -702,8 +873,6 @@ socket.emit(
                 );
 
 
-                // Clear text
-
                 setMessage("");
             }
         );
@@ -728,50 +897,43 @@ socket.emit(
     // FILE SELECTED
     // =====================================================
 
-    const handleFileChange = (event) => {
+    const handleFileChange =
+        (event) => {
 
-        const file =
-            event.target.files?.[0];
+            const files =
+                Array.from(event.target.files);
 
+            if (files.length === 0) {
+                return;
+            }
 
-        if (!file) {
-            return;
-        }
+            if (!selectedUser) {
+                console.error(
+                    "Please select a user first"
+                );
+                return;
+            }
 
+            if (files.length > 10) {
+                console.error("Maximum 10 files can be selected");
+                alert("You can only select up to 10 files at once.");
+                return;
+            }
 
-        if (!selectedUser) {
-
-            console.error(
-                "Please select a user first"
-            );
-
-            return;
-        }
-
-
-        // IMPORTANT:
-        // Only select the file.
-        // DO NOT upload here.
-
-        setSelectedFile(file);
-
-
-        // Reset input so the same file
-        // can be selected again later.
-
-        event.target.value = "";
-    };
+            setSelectedFiles(files);
+            event.target.value = "";
+        };
 
 
     // =====================================================
     // REMOVE SELECTED FILE
     // =====================================================
 
-    const handleRemoveSelectedFile = () => {
+    const handleRemoveSelectedFile = (index) => {
 
-        setSelectedFile(null);
+        setSelectedFiles(prev => prev.filter((_, i) => i !== index));
 
-        if (fileInputRef.current) {
+        if (fileInputRef.current && selectedFiles.length <= 1) {
             fileInputRef.current.value = "";
         }
     };
@@ -781,12 +943,257 @@ socket.emit(
     // UPLOAD FILE
     // =====================================================
 
-    const uploadFile =
-        async (file) => {
+    const uploadFiles = async (files) => {
+        try {
+            setUploadingFile(true);
+
+            /*
+                File sent by us should always
+                appear at the bottom.
+            */
+            shouldScrollToBottomRef.current = "smooth";
+
+            const formData = new FormData();
+
+            formData.append("receiverId", selectedUser._id);
+
+            files.forEach(file => {
+                formData.append("files", file);
+            });
+
+            console.log(`Uploading ${files.length} files...`);
+
+            const response = await axios.post(
+                "http://localhost:5001/api/messages/upload",
+                formData,
+                {
+                    headers: {
+                        Authorization: `Bearer ${token}`
+                    }
+                }
+            );
+
+            console.log("File upload response:", response.data);
+
+            const uploadedMessages = response.data.data;
+
+            setMessages((previousMessages) => {
+                const newMessages = uploadedMessages.filter(
+                    newMsg => !previousMessages.some(msg => String(msg._id) === String(newMsg._id))
+                );
+                return [...previousMessages, ...newMessages];
+            });
+
+            setSelectedFiles([]);
+
+        } catch (error) {
+            console.error(
+                "File upload error:",
+                error.response?.data || error.message
+            );
+        } finally {
+            setUploadingFile(false);
+        }
+    };
+
+
+    // =====================================================
+    // START VOICE RECORDING
+    // =====================================================
+
+    const startRecording =
+        async () => {
+
+            if (!selectedUser) {
+                return;
+            }
+
 
             try {
 
-                setUploadingFile(true);
+                const stream =
+                    await navigator.mediaDevices
+                        .getUserMedia({
+                            audio: true
+                        });
+
+
+                const mediaRecorder =
+                    new MediaRecorder(
+                        stream
+                    );
+
+
+                mediaRecorderRef.current =
+                    mediaRecorder;
+
+
+                audioChunksRef.current =
+                    [];
+
+
+                mediaRecorder.ondataavailable =
+                    (event) => {
+
+                        if (
+                            event.data.size > 0
+                        ) {
+
+                            audioChunksRef.current.push(
+                                event.data
+                            );
+                        }
+                    };
+
+
+                mediaRecorder.onstop =
+                    () => {
+
+                        stream
+                            .getTracks()
+                            .forEach(
+                                (track) =>
+                                    track.stop()
+                            );
+                    };
+
+
+                mediaRecorder.start();
+
+
+                setIsRecording(true);
+
+                setRecordingTime(0);
+
+
+                recordingTimerRef.current =
+                    setInterval(
+                        () => {
+
+                            setRecordingTime(
+                                (previousTime) =>
+                                    previousTime + 1
+                            );
+
+                        },
+                        1000
+                    );
+
+            } catch (error) {
+
+                console.error(
+                    "Microphone permission error:",
+                    error
+                );
+
+
+                alert(
+                    "Please allow microphone permission to record voice."
+                );
+            }
+        };
+
+
+    // =====================================================
+    // DELETE / CANCEL VOICE RECORDING
+    // =====================================================
+
+    const deleteRecording = () => {
+
+        if (
+            mediaRecorderRef.current
+        ) {
+
+            if (
+                mediaRecorderRef.current
+                    .state !==
+                "inactive"
+            ) {
+
+                mediaRecorderRef.current
+                    .stop();
+            }
+        }
+
+
+        if (
+            recordingTimerRef.current
+        ) {
+
+            clearInterval(
+                recordingTimerRef.current
+            );
+
+            recordingTimerRef.current =
+                null;
+        }
+
+
+        audioChunksRef.current = [];
+
+
+        setIsRecording(false);
+
+        setRecordingTime(0);
+
+
+        mediaRecorderRef.current =
+            null;
+    };
+
+
+    // =====================================================
+    // SEND VOICE RECORDING
+    // =====================================================
+
+    const sendRecording = () => {
+
+        if (
+            !mediaRecorderRef.current
+        ) {
+            return;
+        }
+
+
+        const recorder =
+            mediaRecorderRef.current;
+
+
+        recorder.onstop =
+            async () => {
+
+                if (
+                    recordingTimerRef.current
+                ) {
+
+                    clearInterval(
+                        recordingTimerRef.current
+                    );
+
+                    recordingTimerRef.current =
+                        null;
+                }
+
+
+                const audioBlob =
+                    new Blob(
+                        audioChunksRef.current,
+                        {
+                            type:
+                                "audio/webm"
+                        }
+                    );
+
+
+                const audioFile =
+                    new File(
+                        [audioBlob],
+                        `voice-${Date.now()}.webm`,
+                        {
+                            type:
+                                "audio/webm"
+                        }
+                    );
 
 
                 const formData =
@@ -801,159 +1208,114 @@ socket.emit(
 
                 formData.append(
                     "file",
-                    file
+                    audioFile
                 );
 
 
-                console.log(
-                    "Uploading file:",
-                    file.name
-                );
+                try {
+
+                    setUploadingFile(true);
 
 
-                const response =
-                    await axios.post(
-                        "http://localhost:5000/api/messages/upload",
-                        formData,
-                        {
-                            headers: {
-                                Authorization:
-                                    `Bearer ${token}`
+                    /*
+                        Voice message should appear
+                        at the bottom.
+                    */
+
+                    shouldScrollToBottomRef.current =
+                        "smooth";
+
+
+                    const response =
+                        await axios.post(
+                            "http://localhost:5001/api/messages/upload",
+                            formData,
+                            {
+                                headers: {
+                                    Authorization:
+                                        `Bearer ${token}`
+                                }
                             }
-                        }
+                        );
+
+
+                    console.log(
+                        "Voice upload response:",
+                        response.data
                     );
 
 
-                console.log(
-                    "File upload response:",
-                    response.data
-                );
+                    const uploadedMessage =
+                        response.data.data;
 
 
-                const uploadedMessage =
-                    response.data.data;
+                    setMessages(
+                        (previousMessages) => {
+
+                            const alreadyExists =
+                                previousMessages.some(
+                                    (msg) =>
+                                        String(
+                                            msg._id
+                                        ) ===
+                                        String(
+                                            uploadedMessage
+                                                ._id
+                                        )
+                                );
 
 
-                // Add uploaded file to current chat
+                            if (
+                                alreadyExists
+                            ) {
 
-                setMessages(
-                    (previousMessages) => {
-
-                        const alreadyExists =
-                            previousMessages.some(
-                                (msg) =>
-                                    String(msg._id) ===
-                                    String(
-                                        uploadedMessage._id
-                                    )
-                            );
+                                return previousMessages;
+                            }
 
 
-                        if (alreadyExists) {
-                            return previousMessages;
+                            return [
+                                ...previousMessages,
+                                uploadedMessage
+                            ];
                         }
-
-
-                        return [
-                            ...previousMessages,
-                            uploadedMessage
-                        ];
-                    }
-                );
-
-
-                // Clear selected file
-
-                setSelectedFile(null);
-
-
-            } catch (error) {
-
-                console.error(
-                    "File upload error:",
-                    error.response?.data ||
-                    error.message
-                );
-
-            } finally {
-
-                setUploadingFile(false);
-            }
-        };
-
-
-
-
-        // =====================================================
-// START VOICE RECORDING
-// =====================================================
-
-const startRecording = async () => {
-
-    if (!selectedUser) {
-        return;
-    }
-
-    try {
-
-        const stream =
-            await navigator.mediaDevices.getUserMedia({
-                audio: true
-            });
-
-        const mediaRecorder =
-            new MediaRecorder(stream);
-
-        mediaRecorderRef.current =
-            mediaRecorder;
-
-        audioChunksRef.current = [];
-
-        mediaRecorder.ondataavailable =
-            (event) => {
-
-                if (event.data.size > 0) {
-
-                    audioChunksRef.current.push(
-                        event.data
                     );
+
+                } catch (error) {
+
+                    console.error(
+                        "Voice upload error:",
+                        error.response?.data ||
+                        error.message
+                    );
+
+                    shouldScrollToBottomRef.current =
+                        false;
+
+                } finally {
+
+                    setUploadingFile(
+                        false
+                    );
+
+                    setIsRecording(
+                        false
+                    );
+
+                    setRecordingTime(
+                        0
+                    );
+
+                    audioChunksRef.current =
+                        [];
+
+                    mediaRecorderRef.current =
+                        null;
                 }
             };
 
-        mediaRecorder.onstop = () => {
 
-            stream.getTracks().forEach(
-                (track) => track.stop()
-            );
-        };
-
-        mediaRecorder.start();
-
-        setIsRecording(true);
-        setRecordingTime(0);
-
-        recordingTimerRef.current =
-            setInterval(() => {
-
-                setRecordingTime(
-                    (previousTime) =>
-                        previousTime + 1
-                );
-
-            }, 1000);
-
-    } catch (error) {
-
-        console.error(
-            "Microphone permission error:",
-            error
-        );
-
-        alert(
-            "Please allow microphone permission to record voice."
-        );
-    }
-};
+        recorder.stop();
+    };
 
 
     // =====================================================
@@ -966,24 +1328,18 @@ const startRecording = async () => {
             return;
         }
 
+        // FILES HAVE PRIORITY
 
-        // =================================================
-        // FILE HAS PRIORITY
-        // =================================================
+        if (selectedFiles.length > 0) {
 
-        if (selectedFile) {
-
-            await uploadFile(
-                selectedFile
+            await uploadFiles(
+                selectedFiles
             );
 
             return;
         }
 
-
-        // =================================================
         // TEXT MESSAGE
-        // =================================================
 
         sendTextMessage();
     };
@@ -1037,10 +1393,44 @@ const startRecording = async () => {
             ).toLocaleTimeString(
                 [],
                 {
-                    hour: "2-digit",
-                    minute: "2-digit"
+                    hour:
+                        "2-digit",
+
+                    minute:
+                        "2-digit"
                 }
             );
+        };
+
+
+    // =====================================================
+    // FORMAT RECORDING TIME
+    // =====================================================
+
+    const formatRecordingTime =
+        (seconds) => {
+
+            const minutes =
+                Math.floor(
+                    seconds / 60
+                );
+
+
+            const remainingSeconds =
+                seconds % 60;
+
+
+            return `${String(
+                minutes
+            ).padStart(
+                2,
+                "0"
+            )}:${String(
+                remainingSeconds
+            ).padStart(
+                2,
+                "0"
+            )}`;
         };
 
 
@@ -1052,7 +1442,7 @@ const startRecording = async () => {
         (msg) => {
 
             const fileUrl =
-                `http://localhost:5000${msg.fileUrl}`;
+                `http://localhost:5001${msg.fileUrl}`;
 
 
             // =================================================
@@ -1084,7 +1474,6 @@ const startRecording = async () => {
                                 {msg.fileName}
 
                             </div>
-
                         )}
 
                     </div>
@@ -1123,7 +1512,7 @@ const startRecording = async () => {
 
 
             // =================================================
-            // AUDIO
+            // AUDIO / VOICE
             // =================================================
 
             if (
@@ -1171,14 +1560,19 @@ const startRecording = async () => {
                     <div className="chat-file-info">
 
                         <strong>
+
                             {msg.fileName ||
                                 "Download file"}
+
                         </strong>
 
+
                         <small>
+
                             {formatFileSize(
                                 msg.fileSize
                             )}
+
                         </small>
 
                     </div>
@@ -1202,7 +1596,6 @@ const startRecording = async () => {
             ================================================= */}
 
             <div className="chat-sidebar">
-
 
                 <div className="sidebar-header">
 
@@ -1245,7 +1638,9 @@ const startRecording = async () => {
                         (item) => (
 
                             <div
-                                key={item._id}
+                                key={
+                                    item._id
+                                }
                                 className={
                                     selectedUser?._id ===
                                     item._id
@@ -1271,11 +1666,16 @@ const startRecording = async () => {
                                 <div className="user-info">
 
                                     <strong>
+
                                         {item.name}
+
                                     </strong>
 
+
                                     <p>
+
                                         {item.email}
+
                                     </p>
 
                                 </div>
@@ -1326,7 +1726,9 @@ const startRecording = async () => {
                         <div>
 
                             <h3>
+
                                 {selectedUser.name}
+
                             </h3>
 
 
@@ -1347,11 +1749,12 @@ const startRecording = async () => {
                     <div className="chat-header">
 
                         <h3>
+
                             Select a user to start chatting
+
                         </h3>
 
                     </div>
-
                 )}
 
 
@@ -1359,17 +1762,18 @@ const startRecording = async () => {
                     MESSAGES
                 ================================================= */}
 
-    <div
-    className="messages-container"
-    ref={messagesContainerRef}
->
+                <div
+                    className="messages-container"
+                    ref={
+                        messagesContainerRef
+                    }
+                >
 
                     {!selectedUser ? (
 
                         <div className="empty-chat">
 
                             Select someone from the sidebar 👈
-                            
 
                         </div>
 
@@ -1386,7 +1790,6 @@ const startRecording = async () => {
 
                         messages.map(
                             (msg) => {
-                                
 
                                 const isMyMessage =
                                     String(
@@ -1394,11 +1797,9 @@ const startRecording = async () => {
                                     ) ===
                                     String(
                                         user?.id
-
-                        
                                     );
 
-                            
+
                                 const isFileMessage =
                                     msg.messageType &&
                                     msg.messageType !==
@@ -1408,7 +1809,9 @@ const startRecording = async () => {
                                 return (
 
                                     <div
-                                        key={msg._id}
+                                        key={
+                                            msg._id
+                                        }
                                         className={
                                             isMyMessage
                                                 ? "message-row my-message"
@@ -1419,9 +1822,7 @@ const startRecording = async () => {
                                         <div className="message-bubble">
 
 
-                                            {/* ==========================================
-                                                FILE / MEDIA
-                                            ========================================== */}
+                                            {/* FILE / MEDIA */}
 
                                             {isFileMessage ? (
 
@@ -1432,15 +1833,15 @@ const startRecording = async () => {
                                             ) : (
 
                                                 <span>
+
                                                     {msg.message}
+
                                                 </span>
 
                                             )}
 
 
-                                            {/* ==========================================
-                                                MESSAGE META
-                                            ========================================== */}
+                                            {/* MESSAGE META */}
 
                                             <small className="message-meta">
 
@@ -1481,11 +1882,20 @@ const startRecording = async () => {
                                 );
                             }
                         )
-
                     )}
-                    <div ref={messagesEndRef}></div>
-                    
-                   
+
+
+                    {/* =================================================
+                        IMPORTANT:
+                        THIS MUST STAY AFTER messages.map()
+                    ================================================= */}
+
+                    <div
+                        ref={
+                            messagesEndRef
+                        }
+                    ></div>
+
                 </div>
 
 
@@ -1497,168 +1907,240 @@ const startRecording = async () => {
 
                     <>
 
-                        {/* ==========================================
-                            SELECTED FILE PREVIEW
-                        ========================================== */}
+                        {/* SELECTED FILE PREVIEW */}
 
-                        {selectedFile && (
+                        {/* SELECTED FILES PREVIEW */}
 
-                            <div className="selected-file-preview">
+                        {selectedFiles.length > 0 && (
 
-                                <div className="selected-file-info">
+                            <div className="selected-files-container" style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', padding: '10px 20px', backgroundColor: '#f0f2f5' }}>
 
-                                    <i className="bi bi-file-earmark"></i>
+                                {selectedFiles.map((file, index) => (
 
-                                    <span>
-                                        {selectedFile.name}
-                                    </span>
+                                    <div key={index} className="selected-file-preview" style={{ margin: 0 }}>
 
-                                </div>
+                                        <div className="selected-file-info">
+
+                                            <i className="bi bi-file-earmark"></i>
+
+                                            <span title={file.name}>
+
+                                                {file.name.length > 15 ? file.name.substring(0, 15) + "..." : file.name}
+
+                                            </span>
+
+                                        </div>
 
 
-                                <button
-                                    type="button"
-                                    className="remove-file-button"
-                                    onClick={
-                                        handleRemoveSelectedFile
-                                    }
-                                >
+                                        <button
+                                            type="button"
+                                            className="remove-file-button"
+                                            onClick={
+                                                () => handleRemoveSelectedFile(index)
+                                            }
+                                        >
 
-                                    <i className="bi bi-x-lg"></i>
+                                            <i className="bi bi-x-lg"></i>
 
-                                </button>
+                                        </button>
+
+                                    </div>
+
+                                ))}
 
                             </div>
-
                         )}
 
 
-                        {/* ==========================================
-                            INPUT AREA
-                        ========================================== */}
+                        {/* INPUT AREA */}
 
                         <div className="message-input-container">
 
+                            {!isRecording ? (
 
-                            {/* ==========================================
-                                HIDDEN FILE INPUT
-                            ========================================== */}
+                                <>
 
-                            {/* <input
-                                ref={
-                                    fileInputRef
-                                }
-                                type="file"
-                                className="file-input-hidden"
-                                onChange={
-                                    handleFileChange
-                                }
-                            />
- */}
+                                    {/* ATTACHMENT */}
 
-                            {/* ==========================================
-                                ATTACHMENT BUTTON
-                            ========================================== */}
+                                    <label
+                                        htmlFor="media-file-input"
+                                        className="media-button"
+                                        title="Attach file"
+                                    >
 
-                           <label
-    htmlFor="media-file-input"
-    className="media-button"
-    title="Attach file"
->
-    <i className="bi bi-paperclip"></i>
-</label>
+                                        <i className="bi bi-paperclip"></i>
 
-<input
-    id="media-file-input"
-    type="file"
-    className="hidden-file-input"
-    onChange={handleFileChange}
-/>
+                                    </label>
 
 
-                            {/* ==========================================
-                                TEXT INPUT
-                            ========================================== */}
-
-                            <input
-                                type="text"
-                                placeholder={
-                                    uploadingFile
-                                        ? "Uploading file..."
-                                        : selectedFile
-                                            ? "Click send to share file..."
-                                            : `Message ${selectedUser.name}...`
-                                }
-                                value={
-                                    message
-                                }
-                                disabled={
-                                    uploadingFile
-                                }
-                                onChange={(e) =>
-                                    setMessage(
-                                        e.target.value
-                                    )
-                                }
-                                onKeyDown={(e) => {
-
-                                    if (
-                                        e.key ===
-                                        "Enter"
-                                    ) {
-
-                                        handleSend();
-                                    }
-
-                                }}
-                            />
+                                    <input
+                                        id="media-file-input"
+                                        type="file"
+                                        multiple
+                                        className="hidden-file-input"
+                                        onChange={
+                                            handleFileChange
+                                        }
+                                    />
 
 
-                            {/* ==========================================
-                                SEND BUTTON
-                            ========================================== */}
+                                    {/* TEXT INPUT */}
 
-                            <button
-                                type="button"
-                                className="send-button"
-                                onClick={
-                                    handleSend
-                                }
-                                disabled={
-                                    uploadingFile ||
-                                    (
-                                        !message.trim() &&
-                                        !selectedFile
-                                    )
-                                }
-                                aria-label={
-                                    selectedFile
-                                        ? "Send file"
-                                        : "Send message"
-                                }
-                                title={
-                                    selectedFile
-                                        ? "Send file"
-                                        : "Send message"
-                                }
-                            >
+                                    <input
+                                        type="text"
+                                        placeholder={
+                                            uploadingFile
+                                                ? "Uploading file..."
+                                                : selectedFiles.length > 0
+                                                    ? "Click send to share files..."
+                                                    : `Message ${selectedUser.name}...`
+                                        }
+                                        value={
+                                            message
+                                        }
+                                        disabled={
+                                            uploadingFile
+                                        }
+                                        onChange={(e) =>
+                                            setMessage(
+                                                e.target.value
+                                            )
+                                        }
+                                        onKeyDown={(e) => {
 
-                                {uploadingFile ? (
+                                            if (
+                                                e.key ===
+                                                "Enter"
+                                            ) {
 
-                                    <i className="bi bi-arrow-repeat"></i>
+                                                handleSend();
+                                            }
+                                        }}
+                                    />
 
-                                ) : (
 
-                                    <i className="bi bi-send-fill"></i>
+                                    {/* VOICE / SEND BUTTON */}
 
-                                )}
+                                    {!message.trim() &&
+                                    selectedFiles.length === 0 ? (
 
-                            </button>
+                                        <button
+                                            type="button"
+                                            className="voice-button"
+                                            onClick={
+                                                startRecording
+                                            }
+                                            disabled={
+                                                uploadingFile
+                                            }
+                                            title="Record voice"
+                                        >
+
+                                            <i className="bi bi-mic-fill"></i>
+
+                                        </button>
+
+                                    ) : (
+
+                                        <button
+                                            type="button"
+                                            className="send-button"
+                                            onClick={
+                                                handleSend
+                                            }
+                                            disabled={
+                                                uploadingFile ||
+                                                (
+                                                    !message.trim() &&
+                                                    selectedFiles.length === 0
+                                                )
+                                            }
+                                        >
+
+                                            {uploadingFile ? (
+
+                                                <i className="bi bi-arrow-repeat"></i>
+
+                                            ) : (
+
+                                                <i className="bi bi-send-fill"></i>
+
+                                            )}
+
+                                        </button>
+                                    )}
+
+                                </>
+
+                            ) : (
+
+                                /* =================================================
+                                   RECORDING UI
+                                ================================================= */
+
+                                <div className="recording-container">
+
+
+                                    {/* DELETE */}
+
+                                    <button
+                                        type="button"
+                                        className="delete-recording-button"
+                                        onClick={
+                                            deleteRecording
+                                        }
+                                        title="Delete recording"
+                                    >
+
+                                        <i className="bi bi-trash3-fill"></i>
+
+                                    </button>
+
+
+                                    {/* RECORDING STATUS */}
+
+                                    <div className="recording-status">
+
+                                        <span className="recording-dot"></span>
+
+                                        <span>
+
+                                            {formatRecordingTime(
+                                                recordingTime
+                                            )}
+
+                                        </span>
+
+                                        <span className="recording-text">
+
+                                            Recording...
+
+                                        </span>
+
+                                    </div>
+
+
+                                    {/* SEND */}
+
+                                    <button
+                                        type="button"
+                                        className="send-recording-button"
+                                        onClick={
+                                            sendRecording
+                                        }
+                                        title="Send voice message"
+                                    >
+
+                                        <i className="bi bi-send-fill"></i>
+
+                                    </button>
+
+                                </div>
+                            )}
 
                         </div>
 
                     </>
-
                 )}
 
             </div>
@@ -1666,4 +2148,6 @@ const startRecording = async () => {
         </div>
     );
 };
+
+
 export default Chat;

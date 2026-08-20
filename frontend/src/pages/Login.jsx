@@ -1,5 +1,6 @@
 import { useState } from "react";
 import axios from "axios";
+import { loginUser } from "../services/api";
 import { useNavigate, Link } from "react-router-dom";
 
 const Login = () => {
@@ -19,8 +20,7 @@ const Login = () => {
 
         try {
 
-            const response = await axios.post(
-                "http://localhost:5000/api/auth/login",
+            const response = await loginUser(
                 {
                     email,
                     password

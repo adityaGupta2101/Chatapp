@@ -1,4 +1,5 @@
 const Message = require("../models/message");
+const { getIo, onlineUsers } = require("../socket/socket");
 
 // Send a message
 const sendMessage = async (req, res) => {
@@ -76,10 +77,10 @@ const uploadFile = async (req, res) => {
 
         const senderId = req.user.userId;
 
-        if (!req.file) {
+        if (!req.files || req.files.length === 0) {
 
             return res.status(400).json({
-                message: "No file uploaded"
+                message: "No files uploaded"
             });
 
         }
@@ -97,86 +98,70 @@ const uploadFile = async (req, res) => {
         }
 
 
-        // =================================================
-        // DETERMINE MESSAGE TYPE
-        // =================================================
+        const receiverSocketId = onlineUsers.get(String(receiverId));
+        const io = getIo();
+        
+        const createdMessages = [];
 
-        let messageType = "file";
-
-
-        if (
-            req.file.mimetype.startsWith(
-                "image/"
-            )
-        ) {
-
-            messageType = "image";
-
-        } else if (
-            req.file.mimetype.startsWith(
-                "video/"
-            )
-        ) {
-
-            messageType = "video";
-
-        } else if (
-            req.file.mimetype.startsWith(
-                "audio/"
-            )
-        ) {
-
-            messageType = "audio";
-        }
-
-
-        // =================================================
-        // FILE URL
-        // =================================================
-
-        const fileUrl =
-            `/uploads/${req.file.filename}`;
-
-
-        // =================================================
-        // SAVE MESSAGE
-        // =================================================
-
-        const newMessage =
-            await Message.create({
-
+        for (const file of req.files) {
+            // =================================================
+            // DETERMINE MESSAGE TYPE
+            // =================================================
+    
+            let messageType = "file";
+    
+            if (file.mimetype.startsWith("image/")) {
+                messageType = "image";
+            } else if (file.mimetype.startsWith("video/")) {
+                messageType = "video";
+            } else if (file.mimetype.startsWith("audio/")) {
+                messageType = "audio";
+            }
+    
+            // =================================================
+            // FILE URL
+            // =================================================
+    
+            const fileUrl = `/uploads/${file.filename}`;
+    
+            // =================================================
+            // SAVE MESSAGE
+            // =================================================
+    
+            const newMessage = await Message.create({
                 sender: senderId,
-
                 receiver: receiverId,
-
                 message: "",
-
                 messageType,
-
                 fileUrl,
-
-                fileName:
-                    req.file.originalname,
-
-                fileSize:
-                    req.file.size,
-
-                mimeType:
-                    req.file.mimetype
+                fileName: file.originalname,
+                fileSize: file.size,
+                mimeType: file.mimetype
             });
-
+    
+            // =================================================
+            // EMIT SOCKET EVENT IF RECEIVER IS ONLINE
+            // =================================================
+    
+            if (receiverSocketId) {
+                newMessage.delivered = true;
+                await newMessage.save();
+    
+                if (io) {
+                    io.to(receiverSocketId).emit("message_received", newMessage);
+                }
+            }
+            
+            createdMessages.push(newMessage);
+        }
 
         // =================================================
         // RESPONSE
         // =================================================
 
         return res.status(201).json({
-
-            message:
-                "File uploaded successfully",
-
-            data:
-                newMessage
+            message: "Files uploaded successfully",
+            data: createdMessages
         });
 
 
@@ -189,9 +174,7 @@ const uploadFile = async (req, res) => {
 
 
         return res.status(500).json({
-
-            message:
-                "Server error while uploading file"
+            message: "Server error while uploading files"
         });
     }
 };
